@@ -22,6 +22,7 @@
 #include "lib/Syscall.h"
 
 #include <atomic>
+#include <mutex>
 
 #include <fcntl.h>
 #include <sys/prctl.h>
@@ -35,14 +36,15 @@ static const char MALI_UTGARD_STARTUP[] = "\0mali-utgard-startup";
 static const char FTRACE_V1[] = "FTRACE 1\n";
 static const char FTRACE_V2[] = "FTRACE 2\n";
 
-static constexpr int BUFFER_SIZE = 1 * 1024 * 1024;
+static constexpr int MEGABYTE = 1024 * 1024;
 
 class ExternalSourceImpl : public ExternalSource {
 public:
     ExternalSourceImpl(sem_t & senderSem, Drivers & mDrivers, std::function<uint64_t()> getMonotonicTime)
         : mGetMonotonicTime(std::move(getMonotonicTime)),
           mCommitChecker(gSessionData.mLiveRate),
-          mBuffer(BUFFER_SIZE, senderSem),
+          mBufferSize(gSessionData.mTotalBufferSize * MEGABYTE),
+          mBuffer(mBufferSize, senderSem),
 
           mMidgardStartupUds(MALI_GRAPHICS_STARTUP, sizeof(MALI_GRAPHICS_STARTUP)),
           mUtgardStartupUds(MALI_UTGARD_STARTUP, sizeof(MALI_UTGARD_STARTUP)),
@@ -285,19 +287,29 @@ public:
         }
 
         if (mDrivers.getFtraceDriver().isSupported()) {
-            const auto ftraceFds = mDrivers.getFtraceDriver().stop();
+            const auto ftraceFds = mDrivers.getFtraceDriver().requestStop();
             // Read any slop
             for (int fd : ftraceFds) {
-                transfer(monotonicStart, fd, endSession);
+                if (!lib::setBlocking(fd)) {
+                    LOG_WARNING("Failed to change ftrace pipe to blocking reads. Ftrace data may be truncated");
+                }
+
+                while (transfer(monotonicStart, fd, endSession)) {
+                }
+
                 close(fd);
             }
+            mDrivers.getFtraceDriver().stop();
             mDrivers.getTtraceDriver().stop();
             mDrivers.getAtraceDriver().stop();
         }
 
         for (auto & pair : external_agent_connections) {
             LOG_DEBUG("Closing read end %d", pair.first);
-            pair.second.close();
+            // ask the agent to close the connection
+            pair.second.first->close();
+            // now close the read end of the pipe
+            pair.second.second.close();
         }
 
         mBuffer.flush();
@@ -326,7 +338,14 @@ public:
             mBuffer.endFrame();
             // Always force-flush the buffer as this frame don't work like others
             checkFlush(monotonicStart, true);
-            close(fd);
+
+            // remove the closed fd from the monitor and potentially from the external_agent_connections map as well
+            // [SDDAP-11662] - lock this to prevent async creating another pipe with the same fd
+            std::lock_guard<std::mutex> lock {external_agent_connections_mutex};
+            mMonitor.remove(fd);
+            external_agent_connections.erase(fd);
+            LOG_DEBUG("Closed external source pipe %d", fd);
+
             return false;
         }
 
@@ -334,8 +353,7 @@ public:
         mBuffer.endFrame();
         checkFlush(monotonicStart, isBufferOverFull(mBuffer.contiguousSpaceAvailable()));
 
-        // Short reads also mean nothing is left to read
-        return bytes >= contiguous;
+        return true;
     }
 
     void interrupt() override
@@ -357,12 +375,16 @@ public:
         return isDone;
     }
 
-    lib::AutoClosingFd add_agent_pipe() override
+    lib::AutoClosingFd add_agent_pipe(std::unique_ptr<agents::ext_source_connection_t> connection) override
     {
+        std::lock_guard<std::mutex> lock {external_agent_connections_mutex};
+
         std::array<int, 2> pfd {{-1, -1}};
         if (lib::pipe2(pfd, O_CLOEXEC) < 0) {
             return {};
         }
+
+        LOG_DEBUG("Created new external source pipe (es=%d, ag=%d)", pfd[0], pfd[1]);
 
         lib::AutoClosingFd read {pfd[0]};
         lib::AutoClosingFd write {pfd[1]};
@@ -371,7 +393,7 @@ public:
             return {};
         }
 
-        external_agent_connections[pfd[0]] = std::move(read);
+        external_agent_connections[pfd[0]] = {std::move(connection), std::move(read)};
 
         int8_t c = 0;
         // Write to the pipe to wake the monitor which will cause mSessionIsActive to be reread
@@ -384,17 +406,21 @@ public:
     }
 
 private:
+    using agent_connection_t = std::pair<std::unique_ptr<agents::ext_source_connection_t>, lib::AutoClosingFd>;
+
     sem_t mBufferSem {};
     std::function<uint64_t()> mGetMonotonicTime;
     CommitTimeChecker mCommitChecker;
+    const int mBufferSize;
     Buffer mBuffer;
     Monitor mMonitor {};
     OlyServerSocket mMidgardStartupUds;
     OlyServerSocket mUtgardStartupUds;
-    std::map<int, lib::AutoClosingFd> external_agent_connections {};
+    std::mutex external_agent_connections_mutex {};
+    std::map<int, agent_connection_t> external_agent_connections {};
     lib::AutoClosingFd mInterruptRead {};
     lib::AutoClosingFd mInterruptWrite {};
-    int mMidgardUds;
+    int mMidgardUds {};
     Drivers & mDrivers;
     std::atomic_bool mSessionIsActive {true};
 
@@ -407,16 +433,16 @@ private:
         }
     }
 
-    static bool isBufferOverFull(int sizeAvailable)
+    [[nodiscard]] bool isBufferOverFull(int sizeAvailable) const
     {
         // if less than a quarter left
-        return (sizeAvailable < (BUFFER_SIZE / 4));
+        return (sizeAvailable < (mBufferSize / 4));
     }
 };
 
-std::unique_ptr<ExternalSource> createExternalSource(sem_t & senderSem, Drivers & drivers)
+std::shared_ptr<ExternalSource> createExternalSource(sem_t & senderSem, Drivers & drivers)
 {
-    auto source = lib::make_unique<ExternalSourceImpl>(senderSem, drivers, &getTime);
+    auto source = std::make_shared<ExternalSourceImpl>(senderSem, drivers, &getTime);
     if (!source->prepare()) {
         return {};
     }

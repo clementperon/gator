@@ -1,9 +1,9 @@
-/* Copyright (C) 2010-2021 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2010-2022 by Arm Limited. All rights reserved. */
 
 #ifndef SESSION_XML_H
 #define SESSION_XML_H
 
-#include "mxml/mxml.h"
+#include <mxml.h>
 
 struct ImageLinkList;
 

@@ -8,15 +8,16 @@
 #include "Constant.h"
 #include "Counter.h"
 #include "GatorCLIFlags.h"
-#include "ProtocolVersion.h"
 #include "Time.h"
 #include "lib/SharedMemory.h"
-#include "mxml/mxml.h"
+#include "linux/smmu_identifier.h"
+#include <mxml.h>
 
 #include <cstdint>
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -96,12 +97,15 @@ public:
     bool mSystemWide {false};
     bool mExcludeKernelEvents {false};
 
+    gator::smmuv3::default_identifiers_t smmu_identifiers;
+
     // PMU Counters
     Counter mCounters[MAX_PERFORMANCE_COUNTERS];
 };
 
 extern SessionData gSessionData;
 extern const char * const gSrcMd5;
+extern const char * const gBuildId;
 
 void logCpuNotFound();
 

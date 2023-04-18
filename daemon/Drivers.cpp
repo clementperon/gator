@@ -1,4 +1,4 @@
-/* Copyright (C) 2018-2022 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2018-2023 by Arm Limited. All rights reserved. */
 
 #include "Drivers.h"
 
@@ -47,8 +47,8 @@ Drivers::Drivers(bool systemWide,
                      mPrimarySourceProvider->useFtraceDriverForCpuFrequency(),
                      mPrimarySourceProvider->getCpuInfo().getCpuIds().size()},
       mAtraceDriver {mFtraceDriver},
-      mTtraceDriver {mFtraceDriver}
-
+      mTtraceDriver {mFtraceDriver},
+      mPerfettoDriver {mMaliHwCntrs.getSupportedDeviceFamilyName()}
 {
     all.push_back(&mPrimarySourceProvider->getPrimaryDriver());
     for (PolledDriver * driver : mPrimarySourceProvider->getAdditionalPolledDrivers()) {
@@ -62,12 +62,12 @@ Drivers::Drivers(bool systemWide,
     all.push_back(&mMaliHwCntrs);
     all.push_back(&mMidgard);
     all.push_back(&mFtraceDriver);
-    all.push_back(&mFtraceDriver);
     all.push_back(&mAtraceDriver);
     all.push_back(&mTtraceDriver);
     all.push_back(&mExternalDriver);
     all.push_back(&mCcnDriver);
     all.push_back(&mArmnnDriver);
+    all.push_back(&mPerfettoDriver);
 
     auto staticEventsXml = events_xml::getStaticTree(mPrimarySourceProvider->getCpuInfo().getClusters(),
                                                      mPrimarySourceProvider->getDetectedUncorePmus());

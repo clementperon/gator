@@ -1,9 +1,9 @@
-/* Copyright (C) 2019-2021 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2019-2022 by Arm Limited. All rights reserved. */
 
 #ifndef MXML_UTILS_H
 #define MXML_UTILS_H
 
-#include "mxml/mxml.h"
+#include <mxml.h>
 
 #include <memory>
 #include <string>

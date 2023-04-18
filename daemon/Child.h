@@ -36,13 +36,15 @@ public:
         std::set<SpeConfiguration> spes;
     };
 
-    static std::unique_ptr<Child> createLocal(agents::i_agent_spawner_t & spawner,
+    static std::unique_ptr<Child> createLocal(agents::i_agent_spawner_t & hi_priv_spawner,
+                                              agents::i_agent_spawner_t & lo_priv_spawner,
                                               Drivers & drivers,
                                               const Config & config,
                                               capture::capture_process_event_listener_t & event_listener,
                                               logging::last_log_error_supplier_t last_error_supplier,
                                               logging::log_setup_supplier_t log_setup_supplier);
-    static std::unique_ptr<Child> createLive(agents::i_agent_spawner_t & spawner,
+    static std::unique_ptr<Child> createLive(agents::i_agent_spawner_t & hi_priv_spawner,
+                                             agents::i_agent_spawner_t & lo_priv_spawner,
                                              Drivers & drivers,
                                              OlySocket & sock,
                                              capture::capture_process_event_listener_t & event_listener,
@@ -76,7 +78,7 @@ private:
 
     sem_t haltPipeline;
     sem_t senderSem;
-    std::vector<std::unique_ptr<Source>> sources {};
+    std::vector<std::shared_ptr<Source>> sources {};
     std::unique_ptr<Sender> sender;
     Drivers & drivers;
     OlySocket * socket;
@@ -92,7 +94,8 @@ private:
     std::shared_ptr<Command> command {};
     agents::agent_workers_process_t<Child> agent_workers_process;
 
-    Child(agents::i_agent_spawner_t & spawner,
+    Child(agents::i_agent_spawner_t & hi_priv_spawner,
+          agents::i_agent_spawner_t & lo_priv_spawner,
           Drivers & drivers,
           OlySocket * sock,
           Config config,
@@ -105,10 +108,10 @@ private:
      * return true if not empty
      */
     template<typename S>
-    bool addSource(std::unique_ptr<S> source);
+    bool addSource(std::shared_ptr<S> source);
 
     template<typename S, typename Callback>
-    bool addSource(std::unique_ptr<S> source, Callback callback);
+    bool addSource(std::shared_ptr<S> source, Callback callback);
 
     void cleanupException();
     void durationThreadEntryPoint(const lib::Waiter & waitTillStart, const lib::Waiter & waitTillEnd);

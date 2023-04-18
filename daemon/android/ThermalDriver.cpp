@@ -1,11 +1,11 @@
-/* Copyright (C) 2021-2022 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2021-2023 by Arm Limited. All rights reserved. */
 
 #include "android/ThermalDriver.h"
 
 #include "IBlockCounterFrameBuilder.h"
 #include "Logging.h"
 #include "SessionData.h"
-#include "mxml/mxml.h"
+#include <mxml.h>
 
 #include <array>
 #include <cstdint>
@@ -136,7 +136,7 @@ namespace gator::android {
     {
 #if defined(ANDROID) || defined(__ANDROID__)
         constexpr auto all_possible_libandroid_paths =
-            std::array {"/system/lib64/libandroid.so"sv, "/system/lib/libandroid.so"sv, "libandroid.so"sv};
+            std::array {"/system/lib64/libandroid.so"sv, "/system/lib/libandroid.so"sv};
 
         for (auto path : all_possible_libandroid_paths) {
             // If the library can be found and opened...

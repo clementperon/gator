@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2021 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2013-2022 by Arm Limited. All rights reserved. */
 
 #ifndef EVENTS_XML_H
 #define EVENTS_XML_H
@@ -6,7 +6,7 @@
 #include "EventCode.h"
 #include "lib/Span.h"
 #include "linux/perf/PerfEventGroupIdentifier.h"
-#include "mxml/mxml.h"
+#include <mxml.h>
 
 #include <map>
 #include <memory>

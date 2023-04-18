@@ -113,7 +113,11 @@ namespace {
                                                                 bool disableKernelAnnotations)
         {
             std::unique_ptr<PerfDriverConfiguration> configuration =
-                PerfDriverConfiguration::detect(systemWide, traceFsConstants.path__events, ids.getCpuIds(), pmuXml);
+                PerfDriverConfiguration::detect(systemWide,
+                                                traceFsConstants.path__events,
+                                                ids.getCpuIds(),
+                                                gSessionData.smmu_identifiers,
+                                                pmuXml);
             if (configuration != nullptr) {
                 // build the cpuinfo
                 std::vector<GatorCpu> clusters;
@@ -170,7 +174,7 @@ namespace {
 
         [[nodiscard]] lib::Span<const UncorePmu> getDetectedUncorePmus() const override { return uncorePmus; }
 
-        std::unique_ptr<PrimarySource> createPrimarySource(
+        std::shared_ptr<PrimarySource> createPrimarySource(
             sem_t & senderSem,
             ISender & sender,
             std::function<bool()> session_ended_callback,

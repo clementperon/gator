@@ -16,15 +16,15 @@
 #endif
 
 #ifndef CONFIG_SUPPORT_PROC_POLLING
-#define CONFIG_SUPPORT_PROC_POLLING 1
+#define CONFIG_SUPPORT_PROC_POLLING 0
+#endif
+
+#if CONFIG_SUPPORT_PROC_POLLING
+#error "CONFIG_SUPPORT_PROC_POLLING is no longer supported"
 #endif
 
 #ifndef CONFIG_SUPPORT_PERF
 #define CONFIG_SUPPORT_PERF 1
-#endif
-
-#ifndef GATORD_BUILD_ID
-#define GATORD_BUILD_ID "oss"
 #endif
 
 #ifndef GATOR_SELF_PROFILE

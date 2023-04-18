@@ -1,10 +1,10 @@
-/* Copyright (C) 2015-2021 by Arm Limited. All rights reserved. */
+/* Copyright (C) 2015-2022 by Arm Limited. All rights reserved. */
 
 #ifndef ATRACEDRIVER_H
 #define ATRACEDRIVER_H
 
 #include "SimpleDriver.h"
-#include "mxml/mxml.h"
+#include <mxml.h>
 
 class FtraceDriver;
 

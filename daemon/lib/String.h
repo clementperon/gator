@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include <boost/lexical_cast/try_lexical_convert.hpp>
 
@@ -54,7 +55,7 @@ namespace lib {
 
         [[gnu::format(printf, 2, 0)]] inline void vprintf(char const * format, va_list args)
         {
-            auto n = vsnprintf(buffer.data(), buffer.size() - 1, format, args);
+            auto n = vsnprintf(buffer.data(), buffer.size(), format, args);
 
             // make sure to terminate
             length = (n > 0 ? (std::size_t(n) < buffer.size() ? n : N - 1) : 0);
@@ -137,9 +138,8 @@ namespace lib {
     constexpr std::optional<T> try_to_int(std::string_view s)
     {
         T value {0};
-
         if (!boost::conversion::try_lexical_convert(s, value)) {
-            return {};
+            return std::nullopt;
         }
 
         return value;
@@ -172,5 +172,53 @@ namespace lib {
     }
 
     /** Does a string_view start with some prefix */
-    inline bool starts_with(std::string_view str, std::string_view prefix) { return (str.rfind(prefix, 0) == 0); }
+    inline bool starts_with(std::string_view str, std::string_view prefix)
+    {
+        return (str.rfind(prefix, 0) == 0);
+    }
+
+    /** Does a string_view start with some prefix */
+    inline bool ends_with(std::string_view str, std::string_view prefix)
+    {
+        if (str.size() < prefix.size()) {
+            return false;
+        }
+        return str.substr(str.size() - prefix.size()) == prefix;
+    }
+
+    /**
+     * Extracts comma separated numbers from a string.
+     * @return vector of the numbers in the order they were in the stream, empty on parse error
+     */
+    template<typename IntType>
+    [[nodiscard]] static std::optional<std::vector<IntType>> parseCommaSeparatedNumbers(std::string_view string)
+    {
+        std::vector<IntType> ints {};
+
+        while (!string.empty()) {
+            auto const comma = string.find_first_of(',');
+            auto part = string.substr(0, comma);
+
+            part.remove_prefix(std::min(part.find_first_not_of(' '), part.size()));
+            part.remove_suffix(part.size() - std::min(part.find(' '), part.size()));
+
+            if (!part.empty()) {
+                IntType result {0};
+
+                if (!boost::conversion::try_lexical_convert(part, result)) {
+                    return std::nullopt;
+                }
+
+                ints.emplace_back(result);
+            }
+
+            if (comma == std::string_view::npos) {
+                break;
+            }
+
+            string = string.substr(comma + 1);
+        }
+
+        return {std::move(ints)};
+    }
 }

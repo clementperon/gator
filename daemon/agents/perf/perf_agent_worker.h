@@ -90,7 +90,7 @@ namespace agents::perf {
         perf_agent_worker_t(boost::asio::io_context & io,
                             agent_process_t && agent_process,
                             state_change_observer_t && state_change_observer,
-                            EventObserver & observer,
+                            std::shared_ptr<EventObserver> observer,
                             ipc::msg_capture_configuration_t capture_config)
             : agent_worker_base_t(std::move(agent_process), std::move(state_change_observer)),
               strand(io),
@@ -143,7 +143,7 @@ namespace agents::perf {
         friend class capture_controller_t;
 
         boost::asio::io_context::strand strand;
-        EventObserver & observer;
+        std::shared_ptr<EventObserver> observer;
         ipc::msg_capture_configuration_t capture_config;
 
         auto co_shutdown()
@@ -160,11 +160,6 @@ namespace agents::perf {
                        return self->sink().async_send_message(ipc::msg_shutdown_t {}, use_continuation)
                             | then([self](const auto & /*ec*/, const auto & /*msg*/) {});
                    });
-        }
-
-        static auto co_receive_message(const std::monostate & /*msg*/)
-        {
-            LOG_ERROR("Unexpected monostate message received in perf worker.");
         }
 
         /**
@@ -195,10 +190,10 @@ namespace agents::perf {
          * Handle the 'capture ready' message - the agent has been configured and is prepared to
          * start the capture.
          */
-        auto co_receive_message(const ipc::msg_capture_ready_t & /*msg*/)
+        auto co_receive_message(ipc::msg_capture_ready_t && msg)
         {
             LOG_DEBUG("Perf agent is prepared for capture");
-            observer.on_capture_ready();
+            observer->on_capture_ready(std::move(msg.suffix));
         }
 
         /**
@@ -214,14 +209,14 @@ namespace agents::perf {
 
         auto co_receive_message(ipc::msg_apc_frame_data_t && msg)
         {
-            observer.on_apc_frame_received(std::move(msg.suffix));
+            observer->on_apc_frame_received(std::move(msg.suffix));
         }
 
-        auto co_receive_message(ipc::msg_exec_target_app_t const & /*msg*/) { observer.exec_target_app(); }
+        auto co_receive_message(ipc::msg_exec_target_app_t const & /*msg*/) { observer->exec_target_app(); }
 
-        auto co_receive_message(ipc::msg_capture_failed_t const & msg) { observer.on_capture_failed(msg.header); }
+        auto co_receive_message(ipc::msg_capture_failed_t const & msg) { observer->on_capture_failed(msg.header); }
 
-        auto co_receive_message(ipc::msg_capture_started_t const & /*msg*/) { observer.on_capture_started(); }
+        auto co_receive_message(ipc::msg_capture_started_t const & /*msg*/) { observer->on_capture_started(); }
 
     public:
         [[nodiscard]] bool start()
@@ -230,7 +225,7 @@ namespace agents::perf {
             using namespace ipc;
 
             LOG_DEBUG("starting perf agent worker");
-            observer.set_controller(std::make_unique<capture_controller_t>(this->shared_from_this()));
+            observer->set_controller(std::make_unique<capture_controller_t>(this->shared_from_this()));
 
             auto self = this->shared_from_this();
 
@@ -292,7 +287,7 @@ namespace agents::perf {
                   start_on(strand) //
                       | then([self]() {
                             self->transition_state(state_t::terminated);
-                            self->observer.on_capture_completed();
+                            self->observer->on_capture_completed();
                         }),
                   [self](bool failed) {
                       if (failed) {

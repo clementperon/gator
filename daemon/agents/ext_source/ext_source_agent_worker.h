@@ -2,6 +2,7 @@
 #pragma once
 
 #include "agents/agent_worker_base.h"
+#include "agents/ext_source/ext_source_connection.h"
 #include "agents/spawn_agent.h"
 #include "async/continuations/continuation.h"
 #include "async/continuations/operations.h"
@@ -19,9 +20,11 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/io_context_strand.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/system/error_code.hpp>
 
 namespace agents {
+
     /**
      * The main gator process side of the ext_source agent.
      *
@@ -34,6 +37,36 @@ namespace agents {
     class ext_source_agent_worker_t : public agent_worker_base_t,
                                       public std::enable_shared_from_this<ext_source_agent_worker_t<ExternalSource>> {
     private:
+        using weak_ptr_t = std::weak_ptr<ext_source_agent_worker_t<ExternalSource>>;
+
+        class connection_impl_t : public ext_source_connection_t {
+        public:
+            connection_impl_t(weak_ptr_t agent_worker, ipc::annotation_uid_t id)
+                : agent_worker(std::move(agent_worker)), id(id)
+            {
+            }
+
+            ~connection_impl_t() override = default;
+
+            void close() override
+            {
+                using namespace async::continuations;
+                if (auto ptr = agent_worker.lock()) {
+                    LOG_TRACE("Asking ext source agent to close connection %d", id);
+                    auto fut = async_initiate([ptr](auto id) { return ptr->cont_close_annotation_uid(id); },
+                                              boost::asio::use_future,
+                                              id);
+                    fut.get();
+                }
+            }
+
+        private:
+            weak_ptr_t agent_worker;
+            ipc::annotation_uid_t id;
+        };
+
+        friend class connection_impl_t;
+
         boost::asio::io_context::strand strand;
         ExternalSource & external_source;
         std::map<ipc::annotation_uid_t, boost::asio::posix::stream_descriptor> external_source_pipes {};
@@ -105,60 +138,6 @@ namespace agents {
                    });
         }
 
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(std::monostate const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message std::monostate; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_capture_configuration_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_capture_ready_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_capture_ready_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_capture_ready_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_apc_frame_data_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_apc_frame_data_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_start_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_start_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_exec_target_app_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_exec_target_app_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_cpu_state_change_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_cpu_state_change_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_capture_failed_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_capture_failed_t; ignoring");
-        }
-
-        /** Handle one of the IPC variant values */
-        static void cont_on_recv_message(ipc::msg_capture_started_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_capture_started_t; ignoring");
-        }
-
         /** Handle the 'ready' IPC message variant. The agent is ready. */
         void cont_on_recv_message(ipc::msg_ready_t const & /*message*/)
         {
@@ -186,7 +165,8 @@ namespace agents {
         {
             LOG_DEBUG("Received ipc::msg_annotation_new_conn_t; creating new connection %d", message.header);
 
-            auto pipe = external_source.add_agent_pipe();
+            auto con = std::make_unique<connection_impl_t>(this->weak_from_this(), message.header);
+            auto pipe = external_source.add_agent_pipe(std::move(con));
             if (!pipe) {
                 LOG_ERROR("Failed to create external data pipe");
                 return;
@@ -244,12 +224,6 @@ namespace agents {
                    });
         }
 
-        /** Handle the 'send' IPC message variant. The agent received data from a connection. */
-        static void cont_on_recv_message(ipc::msg_annotation_send_bytes_t const & /*message*/)
-        {
-            LOG_DEBUG("Unexpected message ipc::msg_annotation_send_bytes_t; ignoring");
-        }
-
         /** Handle the 'close conn' IPC message variant. The agent closed a connection. */
         void cont_on_recv_message(ipc::msg_annotation_close_conn_t const & message)
         {
@@ -284,9 +258,14 @@ namespace agents {
                     return true;
                 },
                 [st]() {
-                    return st->source().async_recv_message(use_continuation) //
-                         | map_error()                                       //
-                         | post_on(st->strand)                               //
+                    return ipc::async_receive_one_of<ipc::msg_ready_t,
+                                                     ipc::msg_shutdown_t,
+                                                     ipc::msg_annotation_new_conn_t,
+                                                     ipc::msg_annotation_recv_bytes_t,
+                                                     ipc::msg_annotation_close_conn_t>(st->source_shared(),
+                                                                                       use_continuation) //
+                         | map_error()                                                                   //
+                         | post_on(st->strand)                                                           //
                          | unpack_variant([st](auto && message) {
                                // NOLINTNEXTLINE(bugprone-move-forwarding-reference)
                                return st->cont_on_recv_message(std::move(message));
